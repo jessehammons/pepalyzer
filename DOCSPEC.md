@@ -157,7 +157,19 @@ Represents a single PEP that changed within the analysis window, enriched with c
 
 ### PepSignal
 
-Represents detected editorially-interesting signals for a PEP. Signals are descriptive flags, not judgments.
+Represents a detected editorial signal for a PEP.
+
+**Core fields**:
+- **pep_number**: PEP number this signal relates to
+- **signal_type**: Type of signal (e.g., "status_transition", "normative_language", "deprecation")
+- **description**: Human-readable description of what was detected
+- **signal_value**: Integer indicating relative editorial significance (0-100 scale)
+  - **100**: Status transitions (Draft→Accepted, Accepted→Final, →Withdrawn) — major editorial moments
+  - **50**: Content-based signals (normative language added, deprecation keywords)
+  - **10**: Minor signals (legacy cleanup, formatting changes)
+  - **0**: Informational only (no editorial significance)
+
+The integer scale provides headroom for future signal types without requiring schema changes.
 
 ## Three-Layer Analysis Model
 
@@ -235,9 +247,20 @@ This is where editorial significance emerges:
 
 pepalyzer uses simple heuristics, not NLP or machine learning.
 
-### Primary Editorial Signals (Always Shown)
+### Signal Value Scale
 
-These signals indicate major editorial moments and are **always surfaced prominently**:
+Each signal is assigned a **signal_value** (0-100) indicating relative editorial significance:
+
+| Value | Category | Examples | Why |
+|-------|----------|----------|-----|
+| **100** | Status transitions | Draft→Accepted, Accepted→Final, →Withdrawn | Major editorial moments, "LinkedIn-worthy" decisions |
+| **50** | Content-based signals | Normative language added, deprecation keywords | Significant content changes requiring review |
+| **10** | Minor signals | Legacy cleanup, formatting changes | Low-impact housekeeping |
+| **0** | Informational | Metadata changes, typo fixes | No editorial significance |
+
+**Headroom**: The 0-100 scale allows future refinement (e.g., signal_value=75 for new categories) without schema changes.
+
+### High-Value Signals (signal_value = 100)
 
 **Status transitions** (from Git diff analysis):
 - Draft → Accepted
@@ -246,19 +269,23 @@ These signals indicate major editorial moments and are **always surfaced promine
 - Any status → Withdrawn
 - Detected by parsing diff output for Status field changes (e.g., `-Status: Draft` → `+Status: Accepted`)
 
-**Why primary**: Status transitions often represent LinkedIn-worthy moments — decisions made, proposals accepted, designs finalized. A single commit changing status can be more editorially significant than dozens of content edits.
+**Why high-value**: Status transitions often represent LinkedIn-worthy moments — decisions made, proposals accepted, designs finalized. A single commit changing status can be more editorially significant than dozens of content edits.
 
-### Secondary Content Signals
-
-These signals provide additional context but don't override status transitions:
+### Medium-Value Signals (signal_value = 50)
 
 **From current file content:**
 - **Normative language presence** – MUST / MUST NOT, SHOULD / SHOULD NOT (RFC 2119 keywords)
 - **Deprecation language** – "deprecated", "removed", "no longer"
 
+**From diff analysis:**
+- **Normative language added** – Detection of new RFC 2119 keywords in diffs
+
+### Low-Value Signals (signal_value = 10)
+
 **From commit patterns:**
 - **Legacy cleanup** – Small edits to long-dormant PEPs
 - **Documentation updates** – Changes to non-normative sections
+- **Formatting changes** – Whitespace, markup adjustments
 
 ### Signal Detection Philosophy
 
@@ -268,7 +295,7 @@ Signal detection is intentionally:
 - **Explainable** – Every signal has a clear, inspectable rule
 - **Inspectable** – Humans can verify signals by reading diffs
 - **Reversible** – Signals suggest attention, don't block output
-- **Status-first** – Status transitions are treated as more significant than content changes
+- **Value-weighted** – High-value signals (status transitions) get more prominence in output
 
 ## Output Expectations
 
@@ -294,24 +321,24 @@ PEP 815 — Disallow reference cycles in tp_traverse (Draft) [3 commits]
             to prevent memory leaks in extension modules.
   Files: pep-0815.rst
   Signals:
-    - Normative language added (MUST NOT)
-    - Contains RFC 2119 keywords
+    - [50] Normative language added (MUST NOT)
+    - [50] Contains RFC 2119 keywords
 
 PEP 821 — Improve importlib security (Accepted) [2 commits]
   Abstract: This PEP addresses security vulnerabilities in importlib by
             adding validation checks for module loading paths.
   Files: pep-0821.rst, pep-0821-examples.py
   Signals:
-    - STATUS CHANGED: Draft → Accepted ⭐
-    - Minor editorial fixes
+    - [100] STATUS CHANGED: Draft → Accepted ⭐
+    - [10] Minor editorial fixes
 
 PEP 807 — Remove optional feature X (Withdrawn) [1 commit]
   Abstract: This PEP originally proposed feature X, now withdrawn after
             implementation testing revealed performance issues.
   Files: pep-0807.rst
   Signals:
-    - STATUS CHANGED: Draft → Withdrawn ⭐
-    - Contains deprecation language
+    - [100] STATUS CHANGED: Draft → Withdrawn ⭐
+    - [50] Contains deprecation language
 
 PEP 729 — Type annotations for async iterators (Draft) [1 commit]
   Abstract: This PEP proposes standardized type annotations for async
@@ -329,7 +356,7 @@ Designed for archival, longitudinal analysis, and possible future tooling.
 **Schema guarantees**:
 - Every PEP includes `pep_number`, `title`, `status`, `abstract` (required fields)
 - `commit_count` is included but should not be used as a filter or sort key
-- Status transitions are marked with `"primary": true` in signal objects
+- Every signal includes `signal_value` (0-100 scale) for filtering/sorting by significance
 
 **JSON format:**
 
@@ -349,7 +376,7 @@ Designed for archival, longitudinal analysis, and possible future tooling.
       {
         "type": "normative_language",
         "description": "Contains normative language (RFC 2119 keywords)",
-        "primary": false
+        "signal_value": 50
       }
     ]
   },
@@ -367,9 +394,9 @@ Designed for archival, longitudinal analysis, and possible future tooling.
       {
         "type": "status_transition",
         "description": "Status changed: Draft → Accepted",
-        "primary": true,
-        "from": "Draft",
-        "to": "Accepted"
+        "signal_value": 100,
+        "from_status": "Draft",
+        "to_status": "Accepted"
       }
     ]
   }
@@ -462,7 +489,7 @@ This section defines a concrete, bottom-up implementation plan using Test-Driven
     - Required: title, status, abstract
     - Optional: authors, pep_type, created
     - Auxiliary: commit_count, files
-  - `PepSignal` - Contains PEP number, signal type, description, primary flag
+  - `PepSignal` - Contains PEP number, signal type, description, signal_value (0-100)
 - **Test cases**:
   - Model creation with valid data
   - Immutability (prefer `@dataclass(frozen=True)`)
@@ -526,7 +553,8 @@ This section defines a concrete, bottom-up implementation plan using Test-Driven
   - Format single PEP with signals
   - Format multiple PEPs sorted by PEP number
   - Handle PEPs with no signals (show identity, status, abstract only)
-  - Mark status transition signals as primary
+  - Show signal_value for each signal (e.g., [100], [50])
+  - Mark high-value signals (signal_value=100) visually with ⭐
   - Handle empty results (no PEPs changed)
   - Proper indentation and spacing
   - Gracefully handle missing metadata (show "Unknown" rather than hiding PEP)
@@ -556,7 +584,8 @@ PEP 821 — Improve importlib security (Accepted) [1 commit]
   - Include all required fields (pep_number, title, status, abstract)
   - Include optional fields (authors, pep_type, created)
   - Include auxiliary fields (commit_count, files)
-  - Mark primary signals with "primary": true
+  - Every signal includes signal_value (0-100)
+  - Status transitions include from_status and to_status fields
   - Handle empty results (return empty array)
   - Pretty-print with indentation
 
