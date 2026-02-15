@@ -110,6 +110,78 @@ class TestPepActivity:
         except AttributeError:
             pass
 
+    def test_pep_activity_with_metadata(self) -> None:
+        """Create PepActivity with full metadata."""
+        activity = PepActivity(
+            pep_number=815,
+            commit_count=3,
+            files=["pep-0815.rst"],
+            title="Disallow reference cycles in tp_traverse",
+            status="Draft",
+            abstract="This PEP proposes disallowing reference cycles...",
+            authors=["Sam Gross <colesbury@gmail.com>"],
+            pep_type="Standards Track",
+            created="11-Jan-2024",
+        )
+        assert activity.pep_number == 815
+        assert activity.title == "Disallow reference cycles in tp_traverse"
+        assert activity.status == "Draft"
+        assert activity.abstract is not None
+        assert "reference cycles" in activity.abstract
+        assert len(activity.authors) == 1
+        assert activity.pep_type == "Standards Track"
+        assert activity.created == "11-Jan-2024"
+
+    def test_pep_activity_with_partial_metadata(self) -> None:
+        """Create PepActivity with some metadata fields None."""
+        activity = PepActivity(
+            pep_number=1,
+            commit_count=1,
+            files=["pep-0001.rst"],
+            title="PEP Purpose and Guidelines",
+            status="Active",
+            # abstract, authors, pep_type, created all None/empty by default
+        )
+        assert activity.title == "PEP Purpose and Guidelines"
+        assert activity.status == "Active"
+        assert activity.abstract is None
+        assert activity.authors == []
+        assert activity.pep_type is None
+        assert activity.created is None
+
+    def test_pep_activity_backward_compatibility(self) -> None:
+        """Test PepActivity works without metadata fields (backward compatible)."""
+        activity = PepActivity(
+            pep_number=815,
+            commit_count=3,
+            files=["pep-0815.rst"],
+        )
+        # All metadata fields should have sensible defaults
+        assert activity.pep_number == 815
+        assert activity.title is None
+        assert activity.status is None
+        assert activity.abstract is None
+        assert activity.authors == []
+        assert activity.pep_type is None
+        assert activity.created is None
+
+    def test_pep_activity_with_multiple_authors(self) -> None:
+        """Create PepActivity with multiple authors."""
+        activity = PepActivity(
+            pep_number=8,
+            commit_count=10,
+            files=["pep-0008.rst"],
+            title="Style Guide for Python Code",
+            status="Active",
+            authors=[
+                "Guido van Rossum <guido@python.org>",
+                "Barry Warsaw <barry@python.org>",
+            ],
+        )
+        assert len(activity.authors) == 2
+        assert "Guido van Rossum" in activity.authors[0]
+        assert "Barry Warsaw" in activity.authors[1]
+
 
 class TestPepSignal:
     """Test PepSignal data model."""
@@ -148,3 +220,44 @@ class TestPepSignal:
         repr_str = repr(signal)
         assert "815" in repr_str
         assert "status_change" in repr_str
+
+    def test_pep_signal_with_signal_value(self) -> None:
+        """Create PepSignal with signal_value."""
+        signal = PepSignal(
+            pep_number=821,
+            signal_type="status_transition",
+            description="Status changed: Draft → Accepted",
+            signal_value=100,
+        )
+        assert signal.pep_number == 821
+        assert signal.signal_type == "status_transition"
+        assert signal.signal_value == 100
+
+    def test_pep_signal_default_signal_value(self) -> None:
+        """Test PepSignal defaults to signal_value=0."""
+        signal = PepSignal(
+            pep_number=815,
+            signal_type="informational",
+            description="Some informational signal",
+        )
+        assert signal.signal_value == 0
+
+    def test_pep_signal_medium_value(self) -> None:
+        """Create PepSignal with medium signal_value (50)."""
+        signal = PepSignal(
+            pep_number=815,
+            signal_type="normative_language",
+            description="Contains RFC 2119 keywords",
+            signal_value=50,
+        )
+        assert signal.signal_value == 50
+
+    def test_pep_signal_low_value(self) -> None:
+        """Create PepSignal with low signal_value (10)."""
+        signal = PepSignal(
+            pep_number=1,
+            signal_type="legacy_cleanup",
+            description="Minor formatting changes",
+            signal_value=10,
+        )
+        assert signal.signal_value == 10
