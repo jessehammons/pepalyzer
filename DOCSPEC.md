@@ -60,12 +60,14 @@ pepalyzer scan ~/src/peps --since 30d
 
 At a high level, pepalyzer implements the following pipeline:
 
-1. Local Git repo
-2. Recent commit extraction
-3. File-level change aggregation
-4. PEP-centric normalization
-5. Light signal classification
-6. Structured output for human review
+1. **Local Git repo** - User maintains local clone
+2. **Recent commit extraction** - Read Git history for specified time window
+3. **Git diff analysis** - Parse diffs to detect what changed (status transitions, content modifications)
+4. **File-level change aggregation** - Group changes by PEP number
+5. **Current file metadata extraction** - Read current PEP files to get title, status, abstract, authors
+6. **PEP-centric normalization** - Combine diff analysis + metadata into unified PepActivity objects
+7. **Signal classification** - Apply lightweight heuristics to identify notable patterns
+8. **Structured output** - Format for human review (text or JSON)
 
 Each stage is intentionally simple and testable in isolation.
 
@@ -74,9 +76,10 @@ Each stage is intentionally simple and testable in isolation.
 ### Module Responsibilities (Conceptual)
 
 - **CLI** – Argument parsing, orchestration, output selection
-- **Git Adapter** – Read-only interaction with Git history
-- **Normalization** – Map file changes to PEP numbers
-- **Signal Detection** – Identify notable change patterns
+- **Git Adapter** – Read-only interaction with Git history (commits, diffs)
+- **PEP Metadata Extractor** – Read current PEP files and parse RFC 822 headers
+- **Normalization** – Map file changes to PEP numbers, combine diff data with metadata
+- **Signal Detection** – Identify notable patterns from diffs and file content
 - **Reporting** – Human-readable and machine-readable summaries
 
 ## Data Model (Intermediate Structures)
@@ -93,15 +96,71 @@ Represents a file touched by a commit. Includes the file path and type of change
 
 ### PepActivity
 
-Aggregates activity across commits for a single PEP. Answers questions like:
+Aggregates activity and metadata for a single PEP across multiple commits.
 
-- Which PEPs changed?
-- How often?
-- Over how many commits?
+**Core fields**:
+- **pep_number**: PEP number (e.g., 815)
+- **commit_count**: Number of commits touching this PEP
+- **files**: List of unique file paths associated with this PEP
+
+**Metadata fields** (extracted from PEP file headers):
+- **title**: Human-readable PEP title (from `Title:` field)
+- **status**: Current status (Draft, Accepted, Final, Withdrawn, etc.)
+- **abstract**: First 1-3 sentences from the `Abstract:` section
+- **authors**: List of author names/emails (from `Author:` field)
+- **pep_type**: Type of PEP (Standards Track, Informational, Process)
+- **created**: PEP creation date (from `Created:` field)
+
+Metadata fields are optional and may be `None` if:
+- The file was deleted in the examined commits
+- The file cannot be read
+- The PEP headers are malformed
 
 ### PepSignal
 
 Represents detected editorially-interesting signals for a PEP. Signals are descriptive flags, not judgments.
+
+## Two-Phase Analysis Approach
+
+pepalyzer combines two complementary sources of information:
+
+### Phase 1: Git Diff Analysis (What Changed)
+
+Analyzes commit diffs to detect **transitions and modifications**:
+- Which files were added, modified, or deleted
+- What specific lines changed (additions, deletions)
+- Status transitions by parsing diff output (e.g., `-Status: Draft` → `+Status: Accepted`)
+- Content changes that indicate normative language additions or deprecations
+
+**Data source**: Git commit history (`git log`, `git diff`)
+
+### Phase 2: Current File Metadata Extraction (Current State)
+
+Reads the **current version** of PEP files from the filesystem to extract structured metadata:
+
+**Header format**: PEPs use RFC 822-style headers at the top of `.rst` or `.md` files:
+```
+PEP: 815
+Title: Disallow reference cycles in tp_traverse
+Author: Sam Gross <colesbury@gmail.com>
+Status: Draft
+Type: Standards Track
+Created: 11-Jan-2024
+```
+
+**Extraction rules**:
+- Parse headers as key-value pairs (format: `Key: Value`)
+- Stop at first blank line (end of header section)
+- Handle multi-line values (continuation lines start with whitespace)
+- Support both `.rst` and `.md` file formats
+- Extract abstract from first paragraph after headers (reStructuredText convention)
+
+**Error handling**:
+- If file is deleted/missing: metadata = None, log warning
+- If headers are malformed: extract what's parseable, fill rest with None
+- If file is binary or non-text: skip metadata extraction
+
+**Data source**: Current files on filesystem (repo working directory)
 
 ## Signal Detection (Lightweight, Rule-Based)
 
@@ -109,9 +168,15 @@ pepalyzer uses simple heuristics, not NLP.
 
 ### Supported Signal Categories (Initial)
 
-- **Status changes** – Draft → Accepted, Accepted → Final, Accepted → Withdrawn
+**From Git diff analysis:**
+- **Status transitions** – Detected by parsing diff output for Status field changes (e.g., `-Status: Draft` → `+Status: Accepted`)
+- **Content modifications** – Lines added/removed that indicate significant changes
+
+**From current file content:**
 - **Deprecation language** – "deprecated", "removed", "no longer"
-- **Normative language presence** – MUST / MUST NOT, SHOULD / SHOULD NOT
+- **Normative language presence** – MUST / MUST NOT, SHOULD / SHOULD NOT (RFC 2119 keywords)
+
+**From commit patterns:**
 - **Legacy cleanup** – Small edits to long-dormant PEPs, removal of unused sections
 
 Signal detection is intentionally:
@@ -129,24 +194,58 @@ pepalyzer must support at least two output modes.
 
 Designed for monthly review, editorial note-taking, and stewardship reflection.
 
-**Example:**
+**Example (combining diff analysis + current metadata):**
 
 ```
-PEP 815
-  Status finalized
-  Removed unused security mechanism
-  Indicates shift toward index-level trust
+PEP 815 — Disallow reference cycles in tp_traverse (Draft) [3 commits]
+  Files: pep-0815.rst
+  Abstract: This PEP proposes disallowing reference cycles in tp_traverse...
+  Signals:
+    - Normative language added (MUST NOT) [from diff]
+    - Contains RFC 2119 keywords [from current file]
 
-PEP 427
-  Editorial cleanup
-  Alignment with current packaging tooling
+PEP 821 — Improve importlib security (Accepted) [2 commits]
+  Files: pep-0821.rst, pep-0821-examples.py
+  Abstract: This PEP addresses security vulnerabilities in importlib...
+  Signals:
+    - Status changed: Draft → Accepted [from diff]
+    - Minor editorial fixes [from diff]
+
+PEP 807 — Remove optional feature X (Withdrawn) [1 commit]
+  Files: pep-0807.rst
+  Abstract: This PEP originally proposed feature X, now withdrawn...
+  Signals:
+    - Status changed: Draft → Withdrawn [from diff]
+    - Contains deprecation language [from current file]
 ```
 
 ### Machine-readable output (JSON)
 
 Designed for archival, longitudinal analysis, and possible future NLP work.
 
-Each PEP includes its number, detected signals, and commit count.
+**JSON format:**
+
+```json
+[
+  {
+    "pep_number": 815,
+    "title": "Disallow reference cycles in tp_traverse",
+    "status": "Draft",
+    "abstract": "This PEP proposes disallowing reference cycles...",
+    "authors": ["Sam Gross <colesbury@gmail.com>"],
+    "pep_type": "Standards Track",
+    "created": "2024-01-11",
+    "commit_count": 3,
+    "files": ["pep-0815.rst"],
+    "signals": [
+      {
+        "type": "normative_language",
+        "description": "Contains normative language (RFC 2119 keywords)"
+      }
+    ]
+  }
+]
+```
 
 ## Explicit Non-Goals
 
