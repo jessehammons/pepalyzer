@@ -28,11 +28,13 @@ class CommitRecord:
     Attributes:
         hash: Git commit hash (short or full).
         timestamp: Commit timestamp.
+        message: Commit message (explains why changes were made).
         files: List of files changed in this commit.
     """
 
     hash: str
     timestamp: datetime
+    message: str
     files: list[ChangedFile]
 
 
@@ -55,6 +57,9 @@ class PepActivity:
         authors: List of author names/emails.
         pep_type: Type of PEP (Standards Track, Informational, Process).
         created: PEP creation date (kept as string).
+
+    Provenance fields:
+        commit_messages: List of commit messages explaining changes (chronological).
     """
 
     pep_number: int
@@ -67,6 +72,8 @@ class PepActivity:
     authors: list[str] = field(default_factory=list)
     pep_type: str | None = None
     created: str | None = None
+    # Provenance fields
+    commit_messages: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

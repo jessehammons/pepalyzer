@@ -95,6 +95,12 @@ def format_as_text(activities: list[PepActivity], signals: list[PepSignal]) -> s
             files_str = ", ".join(activity.files)
             lines.append(f"  Files: {files_str}")
 
+        # Commit messages (chronological order)
+        if activity.commit_messages:
+            lines.append("  Commits:")
+            for message in activity.commit_messages:
+                lines.append(f"    - {message}")
+
         # Signals (sorted by signal_value descending, then by type)
         pep_signals = signals_by_pep.get(activity.pep_number, [])
         lines.extend(_format_activity_signals(pep_signals))
@@ -149,6 +155,7 @@ def format_as_json(activities: list[PepActivity], signals: list[PepSignal]) -> s
             "created": activity.created,
             # Auxiliary fields
             "commit_count": activity.commit_count,
+            "commit_messages": activity.commit_messages,
             "files": activity.files,
             # Signals with signal_value
             "signals": [

@@ -17,6 +17,7 @@ class TestAggregateByPep:
             CommitRecord(
                 hash="abc123",
                 timestamp=datetime(2024, 1, 15),
+                message="Update PEP 1",
                 files=[ChangedFile(path="pep-0001.rst", change_type="M")],
             )
         ]
@@ -26,6 +27,8 @@ class TestAggregateByPep:
         assert activities[0].pep_number == 1
         assert activities[0].commit_count == 1
         assert len(activities[0].files) == 1
+        assert len(activities[0].commit_messages) == 1
+        assert activities[0].commit_messages[0] == "Update PEP 1"
 
     def test_single_pep_multiple_commits(self) -> None:
         """Aggregate multiple commits touching same PEP."""
@@ -33,16 +36,19 @@ class TestAggregateByPep:
             CommitRecord(
                 hash="abc123",
                 timestamp=datetime(2024, 1, 15),
+                message="Add initial draft of PEP 815",
                 files=[ChangedFile(path="pep-0815.rst", change_type="M")],
             ),
             CommitRecord(
                 hash="def456",
                 timestamp=datetime(2024, 1, 16),
+                message="Clarify tp_traverse requirements",
                 files=[ChangedFile(path="pep-0815.rst", change_type="M")],
             ),
             CommitRecord(
                 hash="ghi789",
                 timestamp=datetime(2024, 1, 17),
+                message="Add markdown version of PEP 815",
                 files=[ChangedFile(path="pep-0815.md", change_type="A")],
             ),
         ]
@@ -52,6 +58,10 @@ class TestAggregateByPep:
         assert activities[0].pep_number == 815
         assert activities[0].commit_count == 3
         assert len(activities[0].files) == 2  # Unique files
+        assert len(activities[0].commit_messages) == 3
+        assert activities[0].commit_messages[0] == "Add initial draft of PEP 815"
+        assert activities[0].commit_messages[1] == "Clarify tp_traverse requirements"
+        assert activities[0].commit_messages[2] == "Add markdown version of PEP 815"
 
     def test_multiple_peps(self) -> None:
         """Aggregate commits touching multiple PEPs."""
@@ -59,6 +69,7 @@ class TestAggregateByPep:
             CommitRecord(
                 hash="abc123",
                 timestamp=datetime(2024, 1, 15),
+                message="Update PEP 1 and PEP 815",
                 files=[
                     ChangedFile(path="pep-0001.rst", change_type="M"),
                     ChangedFile(path="pep-0815.rst", change_type="M"),
@@ -67,6 +78,7 @@ class TestAggregateByPep:
             CommitRecord(
                 hash="def456",
                 timestamp=datetime(2024, 1, 16),
+                message="Add PEP 2",
                 files=[ChangedFile(path="pep-0002.rst", change_type="A")],
             ),
         ]
@@ -82,21 +94,25 @@ class TestAggregateByPep:
             CommitRecord(
                 hash="abc123",
                 timestamp=datetime(2024, 1, 15),
+                message="Update PEP 815 first time",
                 files=[ChangedFile(path="pep-0815.rst", change_type="M")],
             ),
             CommitRecord(
                 hash="def456",
                 timestamp=datetime(2024, 1, 16),
+                message="Update PEP 1",
                 files=[ChangedFile(path="pep-0001.rst", change_type="M")],
             ),
             CommitRecord(
                 hash="ghi789",
                 timestamp=datetime(2024, 1, 17),
+                message="Update PEP 815 second time",
                 files=[ChangedFile(path="pep-0815.rst", change_type="M")],
             ),
             CommitRecord(
                 hash="jkl012",
                 timestamp=datetime(2024, 1, 18),
+                message="Update PEP 100",
                 files=[ChangedFile(path="pep-0100.rst", change_type="M")],
             ),
         ]
@@ -116,6 +132,7 @@ class TestAggregateByPep:
             CommitRecord(
                 hash="abc123",
                 timestamp=datetime(2024, 1, 15),
+                message="Update PEP 1 and other files",
                 files=[
                     ChangedFile(path="pep-0001.rst", change_type="M"),
                     ChangedFile(path="README.md", change_type="M"),
@@ -142,6 +159,7 @@ class TestAggregateByPep:
             CommitRecord(
                 hash="abc123",
                 timestamp=datetime(2024, 1, 15),
+                message="Update repository infrastructure",
                 files=[
                     ChangedFile(path="README.md", change_type="M"),
                     ChangedFile(path=".gitignore", change_type="M"),
@@ -157,11 +175,13 @@ class TestAggregateByPep:
             CommitRecord(
                 hash="abc123",
                 timestamp=datetime(2024, 1, 15),
+                message="First update to PEP 1",
                 files=[ChangedFile(path="pep-0001.rst", change_type="M")],
             ),
             CommitRecord(
                 hash="def456",
                 timestamp=datetime(2024, 1, 16),
+                message="Second update to PEP 1",
                 files=[
                     ChangedFile(path="pep-0001.rst", change_type="M")
                 ],  # Same file again
@@ -179,6 +199,7 @@ class TestAggregateByPep:
             CommitRecord(
                 hash="abc123",
                 timestamp=datetime(2024, 1, 15),
+                message="Update PEP 815",
                 files=[ChangedFile(path="pep-0815.rst", change_type="M")],
             )
         ]
@@ -216,6 +237,7 @@ This PEP proposes disallowing reference cycles in tp_traverse.
                 CommitRecord(
                     hash="abc123",
                     timestamp=datetime(2024, 1, 15),
+                    message="Add initial draft of PEP 815",
                     files=[ChangedFile(path="pep-0815.rst", change_type="M")],
                 )
             ]
@@ -241,6 +263,7 @@ This PEP proposes disallowing reference cycles in tp_traverse.
                 CommitRecord(
                     hash="abc123",
                     timestamp=datetime(2024, 1, 15),
+                    message="Delete PEP 999",
                     files=[ChangedFile(path="pep-0999.rst", change_type="D")],
                 )
             ]
@@ -268,6 +291,7 @@ This PEP proposes disallowing reference cycles in tp_traverse.
                 CommitRecord(
                     hash="abc123",
                     timestamp=datetime(2024, 1, 15),
+                    message="Convert PEP 815 from RST to Markdown",
                     files=[
                         ChangedFile(path="pep-0815.rst", change_type="D"),
                         ChangedFile(path="pep-0815.md", change_type="A"),
@@ -299,6 +323,7 @@ This is the abstract.
                 CommitRecord(
                     hash="abc123",
                     timestamp=datetime(2024, 1, 15),
+                    message="Update PEP 1 guidelines",
                     files=[ChangedFile(path="pep-0001.rst", change_type="M")],
                 )
             ]
@@ -338,6 +363,7 @@ This PEP addresses security vulnerabilities.
                 CommitRecord(
                     hash="abc123",
                     timestamp=datetime(2024, 1, 15),
+                    message="Update PEP 821 and examples",
                     files=[
                         # Note: example file is alphabetically first
                         ChangedFile(path="pep-0821-examples.py", change_type="M"),
@@ -374,6 +400,7 @@ This PEP addresses security vulnerabilities.
                 CommitRecord(
                     hash="abc123",
                     timestamp=datetime(2024, 1, 15),
+                    message="Update PEP 815 in both formats",
                     files=[
                         ChangedFile(path="pep-0815.md", change_type="A"),
                         ChangedFile(path="pep-0815.rst", change_type="M"),

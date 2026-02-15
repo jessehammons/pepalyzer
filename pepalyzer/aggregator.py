@@ -39,16 +39,24 @@ def aggregate_by_pep(
         >>> activities[0].pep_number
         1
     """
-    # Track commits and files per PEP
+    # Track commits, files, and messages per PEP
     pep_commits: dict[int, int] = defaultdict(int)
     pep_files: dict[int, set[str]] = defaultdict(set)
+    pep_messages: dict[int, list[str]] = defaultdict(list)
 
     for commit in commits:
+        pep_numbers_in_commit = set()
+        # First pass: identify which PEPs this commit touches
         for changed_file in commit.files:
             pep_number = extract_pep_number(changed_file.path)
             if pep_number is not None:
-                pep_commits[pep_number] += 1
+                pep_numbers_in_commit.add(pep_number)
                 pep_files[pep_number].add(changed_file.path)
+
+        # Second pass: increment count and add message for each PEP
+        for pep_number in pep_numbers_in_commit:
+            pep_commits[pep_number] += 1
+            pep_messages[pep_number].append(commit.message)
 
     # Convert to PepActivity objects with metadata
     activities = []
@@ -71,6 +79,8 @@ def aggregate_by_pep(
             authors=metadata.authors if metadata else [],
             pep_type=metadata.pep_type if metadata else None,
             created=metadata.created if metadata else None,
+            # Populate commit messages (chronological order)
+            commit_messages=pep_messages[pep_num],
         )
         activities.append(activity)
 

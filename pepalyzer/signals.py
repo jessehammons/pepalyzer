@@ -33,23 +33,16 @@ def detect_signals(content: str, pep_number: int) -> list[PepSignal]:
     """
     signals: list[PepSignal] = []
 
-    # Detect status changes (signal_value=100: high-value editorial moments)
-    status_patterns = [
-        (r"status:\s*accepted", "status_accepted", "Status: Accepted"),
-        (r"status:\s*final", "status_final", "Status: Final"),
-        (r"status:\s*withdrawn", "status_withdrawn", "Status: Withdrawn"),
-    ]
-
-    for pattern, signal_type, description in status_patterns:
-        if re.search(pattern, content, re.IGNORECASE):
-            signals.append(
-                PepSignal(
-                    pep_number=pep_number,
-                    signal_type=signal_type,
-                    description=description,
-                    signal_value=100,  # High-value: status transitions
-                )
-            )
+    # NOTE: Status transition detection is disabled for now because it was
+    # detecting status *presence* (current state) rather than actual *transitions*
+    # (changes). This was misleading - a PEP that was already Final would show
+    # "Status: Final ⭐" even if the commit just fixed typos.
+    #
+    # To properly detect status transitions, we need to analyze git diffs to see
+    # if the Status field actually changed (e.g., "-Status: Draft" → "+Status: Final").
+    # This requires parsing commit diffs, not just reading current file content.
+    #
+    # See: https://github.com/anthropics/claude-code/issues/XXXX (if filed)
 
     # Detect deprecation language (signal_value=50: medium-value content signal)
     deprecation_patterns = [

@@ -121,7 +121,9 @@ pepalyzer centers around explicit intermediate data structures that reflect prog
 
 ### CommitRecord
 
-Represents a single Git commit relevant to analysis. Contains the commit hash, timestamp, and a list of files changed.
+Represents a single Git commit relevant to analysis. Contains the commit hash, timestamp, commit message, and a list of files changed.
+
+The commit message provides essential context about *why* changes were made, which is often more editorially significant than *what* files changed.
 
 ### ChangedFile
 
@@ -146,11 +148,15 @@ Represents a single PEP that changed within the analysis window, enriched with c
 - **pep_type**: Type of PEP (Standards Track, Informational, Process)
 - **created**: PEP creation date (from `Created:` field)
 
-**Auxiliary provenance** (always shown, informational only, not a measure of importance):
+**Auxiliary provenance** (always shown, provides essential context):
 - **commit_count**: Number of commits touching this PEP in the analysis window
   - Note: If a single commit touches multiple PEPs, each PEP's count increments
   - Total commit_count across all PEPs may exceed total commits analyzed
   - This is correct behavior: commit_count is per-PEP, not global
+- **commit_messages**: List of commit messages (one per commit) that touched this PEP
+  - **Critical for editorial usefulness**: Explains *why* changes were made, not just what files changed
+  - Shown in chronological order (oldest to newest)
+  - Essential for understanding intent without reading every diff
 - **files**: List of unique file paths associated with this PEP
 
 **Error handling**: If a PEP file cannot be read or parsed, title/status/abstract should be set to sensible defaults (e.g., "Unknown", "Unable to read"), not hidden from output. A PEP that changed is still editorially relevant even if metadata extraction fails.
@@ -297,6 +303,115 @@ Signal detection is intentionally:
 - **Reversible** – Signals suggest attention, don't block output
 - **Value-weighted** – High-value signals (status transitions) get more prominence in output
 
+### Known Limitations and Future Improvements
+
+#### Status Transition Detection (Not Yet Implemented)
+
+**Current Status**: Status transition detection is **disabled** as of the current implementation.
+
+**Why Disabled**: The initial implementation detected status *presence* (current state) rather than actual *transitions* (changes). This was misleading:
+- Example: PEP 512 was already in "Final" status
+- A commit fixed Sphinx reference warnings (no status change)
+- Tool incorrectly showed "Status: Final ⭐" as if this were a major editorial moment
+- Result: False positives that misled users about editorial significance
+
+**The Problem**: Reading current file content with `detect_signals(current_content)` only tells us the PEP's current status, not whether the status changed in the analyzed commits. A PEP that has been Final for years will show "Status: Final" even if recent commits just fixed typos.
+
+**Correct Implementation Approach**:
+
+To properly detect status transitions, we need to analyze **git diffs** for each commit:
+
+1. **Get the diff for each commit** that touched a PEP file:
+   ```bash
+   git show <commit-hash>:<file-path>
+   # or
+   git diff <parent-hash> <commit-hash> -- <file-path>
+   ```
+
+2. **Parse the unified diff format** to find Status field changes:
+   ```diff
+   -Status: Draft
+   +Status: Final
+   ```
+
+3. **Extract the transition**:
+   - Old status: "Draft"
+   - New status: "Final"
+   - Signal: "Status transition: Draft → Final" (signal_value=100)
+
+4. **Only create signals for actual changes**:
+   - If Status field unchanged: no signal
+   - If Status field changed: create high-value transition signal
+
+**Implementation Steps**:
+
+1. Add a new function `analyze_commit_diffs()` in `git_adapter.py`:
+   ```python
+   def get_commit_diff(repo_path: str, commit_hash: str, file_path: str) -> str:
+       """Get the unified diff for a specific file in a commit."""
+       result = subprocess.run(
+           ["git", "show", f"{commit_hash}:{file_path}"],
+           cwd=repo_path,
+           capture_output=True,
+           text=True,
+       )
+       return result.stdout
+   ```
+
+2. Add a new function `detect_status_transition()` in `signals.py`:
+   ```python
+   def detect_status_transition(diff_text: str, pep_number: int) -> list[PepSignal]:
+       """Detect status transitions by analyzing git diff.
+
+       Looks for patterns like:
+       -Status: Draft
+       +Status: Final
+       """
+       old_status = None
+       new_status = None
+
+       for line in diff_text.split('\n'):
+           if line.startswith('-Status:'):
+               old_status = line.split(':', 1)[1].strip()
+           elif line.startswith('+Status:'):
+               new_status = line.split(':', 1)[1].strip()
+
+       if old_status and new_status and old_status != new_status:
+           return [PepSignal(
+               pep_number=pep_number,
+               signal_type="status_transition",
+               description=f"Status transition: {old_status} → {new_status}",
+               signal_value=100,
+           )]
+
+       return []
+   ```
+
+3. Update `cli.py` to call diff-based detection:
+   ```python
+   # For each commit that touched each PEP
+   for activity in activities:
+       for commit in commits_for_pep[activity.pep_number]:
+           for file_path in activity.files:
+               diff = get_commit_diff(repo_path, commit.hash, file_path)
+               transition_signals = detect_status_transition(diff, activity.pep_number)
+               signals.extend(transition_signals)
+   ```
+
+**Benefits of Proper Implementation**:
+- ✅ Only shows status transitions when they actually happen
+- ✅ No false positives for PEPs that were already Final
+- ✅ Accurate "Draft → Final ⭐" signals for major editorial moments
+- ✅ Shows which commit caused the transition (via commit message context)
+
+**Testing Requirements**:
+- Create test commits with actual status changes in diffs
+- Verify no signals when status unchanged
+- Verify correct signal when status changes
+- Handle edge cases: malformed Status fields, multiple Status lines, etc.
+
+**Priority**: Medium - Current implementation is correct (no false signals), just incomplete (misses real transitions).
+
 ## Output Expectations
 
 pepalyzer must support at least two output modes.
@@ -320,6 +435,10 @@ PEP 815 — Disallow reference cycles in tp_traverse (Draft) [3 commits]
   Abstract: This PEP proposes disallowing reference cycles in tp_traverse
             to prevent memory leaks in extension modules.
   Files: pep-0815.rst
+  Commits:
+    - Add initial draft of PEP 815
+    - Clarify tp_traverse requirements and add MUST NOT language
+    - Fix typos in abstract
   Signals:
     - [50] Normative language added (MUST NOT)
     - [50] Contains RFC 2119 keywords
@@ -328,6 +447,9 @@ PEP 821 — Improve importlib security (Accepted) [2 commits]
   Abstract: This PEP addresses security vulnerabilities in importlib by
             adding validation checks for module loading paths.
   Files: pep-0821.rst, pep-0821-examples.py
+  Commits:
+    - Add code examples for validation checks
+    - Mark PEP 821 as Accepted per SC decision
   Signals:
     - [100] STATUS CHANGED: Draft → Accepted ⭐
     - [10] Minor editorial fixes
@@ -336,6 +458,8 @@ PEP 807 — Remove optional feature X (Withdrawn) [1 commit]
   Abstract: This PEP originally proposed feature X, now withdrawn after
             implementation testing revealed performance issues.
   Files: pep-0807.rst
+  Commits:
+    - Withdraw PEP 807 after implementation testing
   Signals:
     - [100] STATUS CHANGED: Draft → Withdrawn ⭐
     - [50] Contains deprecation language
@@ -344,6 +468,8 @@ PEP 729 — Type annotations for async iterators (Draft) [1 commit]
   Abstract: This PEP proposes standardized type annotations for async
             iterator protocols to improve type checker support.
   Files: pep-0729.rst
+  Commits:
+    - Initial draft of PEP 729
   (No additional signals detected)
 ```
 
@@ -371,6 +497,11 @@ Designed for archival, longitudinal analysis, and possible future tooling.
     "pep_type": "Standards Track",
     "created": "2024-01-11",
     "commit_count": 3,
+    "commit_messages": [
+      "Add initial draft of PEP 815",
+      "Clarify tp_traverse requirements and add MUST NOT language",
+      "Fix typos in abstract"
+    ],
     "files": ["pep-0815.rst"],
     "signals": [
       {
@@ -389,6 +520,10 @@ Designed for archival, longitudinal analysis, and possible future tooling.
     "pep_type": "Standards Track",
     "created": "2024-02-01",
     "commit_count": 2,
+    "commit_messages": [
+      "Add code examples for validation checks",
+      "Mark PEP 821 as Accepted per SC decision"
+    ],
     "files": ["pep-0821.rst", "pep-0821-examples.py"],
     "signals": [
       {
@@ -550,9 +685,10 @@ This section defines a concrete, bottom-up implementation plan using Test-Driven
 - **Responsibility**: Format PepActivity and PepSignal objects as readable text with required context
 - **Test cases**:
   - Always show title, status, abstract for every PEP (required fields)
+  - Always show commit messages (critical for understanding intent)
   - Format single PEP with signals
   - Format multiple PEPs sorted by PEP number
-  - Handle PEPs with no signals (show identity, status, abstract only)
+  - Handle PEPs with no signals (show identity, status, abstract, commits only)
   - Show signal_value for each signal (e.g., [100], [50])
   - Mark high-value signals (signal_value=100) visually with ⭐
   - Handle empty results (no PEPs changed)
@@ -564,12 +700,18 @@ This section defines a concrete, bottom-up implementation plan using Test-Driven
 PEP 815 — Disallow reference cycles in tp_traverse (Draft) [3 commits]
   Abstract: This PEP proposes disallowing reference cycles...
   Files: pep-0815.rst
+  Commits:
+    - Add initial draft of PEP 815
+    - Clarify tp_traverse requirements and add MUST NOT language
+    - Fix typos in abstract
   Signals:
     - Normative language added (MUST NOT)
 
 PEP 821 — Improve importlib security (Accepted) [1 commit]
   Abstract: This PEP addresses security vulnerabilities...
   Files: pep-0821.rst
+  Commits:
+    - Mark PEP 821 as Accepted per SC decision
   Signals:
     - STATUS CHANGED: Draft → Accepted ⭐
 ```
@@ -583,7 +725,8 @@ PEP 821 — Improve importlib security (Accepted) [1 commit]
   - Output valid JSON schema
   - Include all required fields (pep_number, title, status, abstract)
   - Include optional fields (authors, pep_type, created)
-  - Include auxiliary fields (commit_count, files)
+  - Include auxiliary fields (commit_count, commit_messages, files)
+  - commit_messages is an array of strings in chronological order
   - Every signal includes signal_value (0-100)
   - Status transitions include from_status and to_status fields
   - Handle empty results (return empty array)
@@ -601,12 +744,17 @@ PEP 821 — Improve importlib security (Accepted) [1 commit]
     "pep_type": "Standards Track",
     "created": "2024-01-11",
     "commit_count": 3,
+    "commit_messages": [
+      "Add initial draft of PEP 815",
+      "Clarify tp_traverse requirements and add MUST NOT language",
+      "Fix typos in abstract"
+    ],
     "files": ["pep-0815.rst"],
     "signals": [
       {
         "type": "normative_language",
         "description": "Normative language added (MUST NOT)",
-        "primary": false
+        "signal_value": 50
       }
     ]
   }

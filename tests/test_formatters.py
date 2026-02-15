@@ -19,19 +19,24 @@ class TestFormatAsText:
                 title="Test PEP",
                 status="Draft",
                 abstract="This is a test abstract.",
+                commit_messages=[
+                    "Add initial draft of PEP 815",
+                    "Clarify tp_traverse requirements",
+                    "Fix typos in abstract",
+                ],
             )
         ]
         signals = [
             PepSignal(
                 pep_number=815,
-                signal_type="status_final",
-                description="Status: Final",
-                signal_value=100,
+                signal_type="normative_language",
+                description="Contains normative language (RFC 2119 keywords)",
+                signal_value=50,
             ),
             PepSignal(
                 pep_number=815,
                 signal_type="deprecation",
-                description="Contains deprecation language",
+                description="Contains deprecation or removal language",
                 signal_value=50,
             ),
         ]
@@ -43,12 +48,15 @@ class TestFormatAsText:
         assert "(Draft)" in output
         assert "[3 commits]" in output
         assert "Abstract: This is a test abstract." in output
-        assert "Status: Final" in output
+        # Check commit messages are displayed
+        assert "Commits:" in output
+        assert "Add initial draft of PEP 815" in output
+        assert "Clarify tp_traverse requirements" in output
+        assert "Fix typos in abstract" in output
+        assert "normative language" in output
         assert "deprecation" in output
         # Check signal values are displayed
-        assert "[100]" in output  # High-value signal
         assert "[50]" in output  # Medium-value signal
-        assert "⭐" in output  # High-value signals marked with star
 
     def test_format_multiple_peps(self) -> None:
         """Format multiple PEPs in the order provided (sorted by aggregator)."""
@@ -100,12 +108,6 @@ class TestFormatAsText:
         signals = [
             PepSignal(
                 pep_number=815,
-                signal_type="status_final",
-                description="Status: Final",
-                signal_value=100,
-            ),
-            PepSignal(
-                pep_number=815,
                 signal_type="normative_language",
                 description="Contains MUST/SHOULD keywords",
                 signal_value=50,
@@ -121,14 +123,10 @@ class TestFormatAsText:
         output = format_as_text(activities, signals)
 
         # All signals should appear
-        assert "Status: Final" in output
         assert "MUST/SHOULD" in output
         assert "deprecation" in output
-        # High-value signal should appear first (sorted by value)
-        status_pos = output.find("Status: Final")
-        must_pos = output.find("MUST/SHOULD")
-        # Status (100) should appear before normative language (50)
-        assert status_pos < must_pos
+        # Both have same value, so order is by signal_type (alphabetical within same value)
+        assert "[50]" in output
 
 
 class TestFormatAsJson:
@@ -144,14 +142,19 @@ class TestFormatAsJson:
                 title="Test PEP",
                 status="Draft",
                 abstract="Test abstract",
+                commit_messages=[
+                    "Add initial draft of PEP 815",
+                    "Clarify tp_traverse requirements",
+                    "Fix typos in abstract",
+                ],
             )
         ]
         signals = [
             PepSignal(
                 pep_number=815,
-                signal_type="status_final",
-                description="Status: Final",
-                signal_value=100,
+                signal_type="normative_language",
+                description="Contains normative language (RFC 2119 keywords)",
+                signal_value=50,
             )
         ]
 
@@ -166,9 +169,15 @@ class TestFormatAsJson:
         assert data[0]["status"] == "Draft"
         assert data[0]["abstract"] == "Test abstract"
         assert data[0]["commit_count"] == 3
+        # Check commit_messages is included
+        assert "commit_messages" in data[0]
+        assert len(data[0]["commit_messages"]) == 3
+        assert data[0]["commit_messages"][0] == "Add initial draft of PEP 815"
+        assert data[0]["commit_messages"][1] == "Clarify tp_traverse requirements"
+        assert data[0]["commit_messages"][2] == "Fix typos in abstract"
         assert len(data[0]["signals"]) == 1
         # Check signal_value is included
-        assert data[0]["signals"][0]["signal_value"] == 100
+        assert data[0]["signals"][0]["signal_value"] == 50
 
     def test_format_multiple_peps_as_json(self) -> None:
         """Format multiple PEPs as JSON array."""

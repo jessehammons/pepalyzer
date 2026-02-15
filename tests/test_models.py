@@ -44,10 +44,12 @@ class TestCommitRecord:
         commit = CommitRecord(
             hash="abc123",
             timestamp=timestamp,
+            message="Update PEP 1 and add PEP 2",
             files=files,
         )
         assert commit.hash == "abc123"
         assert commit.timestamp == timestamp
+        assert commit.message == "Update PEP 1 and add PEP 2"
         assert len(commit.files) == 2
 
     def test_commit_record_empty_files(self) -> None:
@@ -55,8 +57,10 @@ class TestCommitRecord:
         commit = CommitRecord(
             hash="abc123",
             timestamp=datetime(2024, 1, 15, 10, 30),
+            message="Update documentation",
             files=[],
         )
+        assert commit.message == "Update documentation"
         assert len(commit.files) == 0
 
     def test_commit_record_immutable(self) -> None:
@@ -64,6 +68,7 @@ class TestCommitRecord:
         commit = CommitRecord(
             hash="abc123",
             timestamp=datetime(2024, 1, 15, 10, 30),
+            message="Test commit",
             files=[],
         )
         try:
@@ -71,6 +76,29 @@ class TestCommitRecord:
             raise AssertionError("Should not allow mutation")
         except AttributeError:
             pass
+
+    def test_commit_record_with_message(self) -> None:
+        """Test CommitRecord includes commit message."""
+        commit = CommitRecord(
+            hash="abc123",
+            timestamp=datetime(2024, 1, 15, 10, 30),
+            message="Add initial draft of PEP 815",
+            files=[ChangedFile(path="pep-0815.rst", change_type="A")],
+        )
+        assert commit.message == "Add initial draft of PEP 815"
+
+    def test_commit_record_message_required(self) -> None:
+        """Test CommitRecord requires message field."""
+        # This test documents that message is a required field
+        timestamp = datetime(2024, 1, 15, 10, 30)
+        files = [ChangedFile(path="pep-0001.rst", change_type="M")]
+        commit = CommitRecord(
+            hash="abc123",
+            timestamp=timestamp,
+            message="Fix typo in PEP 1",
+            files=files,
+        )
+        assert commit.message == "Fix typo in PEP 1"
 
 
 class TestPepActivity:
@@ -181,6 +209,43 @@ class TestPepActivity:
         assert len(activity.authors) == 2
         assert "Guido van Rossum" in activity.authors[0]
         assert "Barry Warsaw" in activity.authors[1]
+
+    def test_pep_activity_with_commit_messages(self) -> None:
+        """Create PepActivity with commit messages."""
+        activity = PepActivity(
+            pep_number=815,
+            commit_count=3,
+            files=["pep-0815.rst"],
+            commit_messages=[
+                "Add initial draft of PEP 815",
+                "Clarify tp_traverse requirements",
+                "Fix typos in abstract",
+            ],
+        )
+        assert len(activity.commit_messages) == 3
+        assert activity.commit_messages[0] == "Add initial draft of PEP 815"
+        assert activity.commit_messages[1] == "Clarify tp_traverse requirements"
+        assert activity.commit_messages[2] == "Fix typos in abstract"
+
+    def test_pep_activity_commit_messages_default_empty(self) -> None:
+        """Test PepActivity commit_messages defaults to empty list."""
+        activity = PepActivity(
+            pep_number=1,
+            commit_count=1,
+            files=["pep-0001.rst"],
+        )
+        assert activity.commit_messages == []
+
+    def test_pep_activity_single_commit_message(self) -> None:
+        """Test PepActivity with single commit message."""
+        activity = PepActivity(
+            pep_number=729,
+            commit_count=1,
+            files=["pep-0729.rst"],
+            commit_messages=["Initial draft of PEP 729"],
+        )
+        assert len(activity.commit_messages) == 1
+        assert activity.commit_messages[0] == "Initial draft of PEP 729"
 
 
 class TestPepSignal:

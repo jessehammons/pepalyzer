@@ -6,34 +6,27 @@ from pepalyzer.signals import detect_signals
 class TestDetectSignals:
     """Test signal detection in text content."""
 
-    def test_detect_status_change_to_accepted(self) -> None:
-        """Detect status change to Accepted."""
+    def test_status_presence_not_detected(self) -> None:
+        """Status presence detection is disabled (was misleading).
+
+        Previously detected "Status: Accepted" as a high-value signal, but this
+        was misleading because it detected current state, not actual transitions.
+        A PEP that was already Final would show "Status: Final ⭐" even if the
+        commit just fixed typos.
+
+        To properly detect status transitions, we need to analyze git diffs.
+        This test documents that status presence is no longer detected.
+        """
         content = """
 Status: Accepted
 Type: Standards Track
 """
         signals = detect_signals(content, pep_number=815)
-        assert len(signals) == 1
-        assert signals[0].signal_type == "status_accepted"
-        assert signals[0].pep_number == 815
-        assert signals[0].signal_value == 100  # High-value signal
-
-    def test_detect_status_change_to_final(self) -> None:
-        """Detect status change to Final."""
-        content = """
-Status: Final
-Type: Standards Track
-"""
-        signals = detect_signals(content, pep_number=427)
-        assert len(signals) == 1
-        assert signals[0].signal_type == "status_final"
-
-    def test_detect_status_withdrawn(self) -> None:
-        """Detect withdrawn status."""
-        content = "Status: Withdrawn"
-        signals = detect_signals(content, pep_number=100)
-        assert len(signals) == 1
-        assert signals[0].signal_type == "status_withdrawn"
+        # Should not detect status presence
+        status_types = {s.signal_type for s in signals}
+        assert "status_accepted" not in status_types
+        assert "status_final" not in status_types
+        assert "status_withdrawn" not in status_types
 
     def test_detect_deprecation_language(self) -> None:
         """Detect deprecation keywords."""
@@ -117,11 +110,12 @@ This feature is deprecated and MUST NOT be used in new code.
         assert len(signal_types) >= 2
 
     def test_case_insensitive_status(self) -> None:
-        """Status detection should be case-insensitive."""
+        """Status detection disabled (this test documents the change)."""
         content = "status: accepted"
         signals = detect_signals(content, pep_number=1)
-        assert len(signals) == 1
-        assert signals[0].signal_type == "status_accepted"
+        # Status presence no longer detected
+        status_types = {s.signal_type for s in signals}
+        assert "status_accepted" not in status_types
 
     def test_empty_content(self) -> None:
         """Handle empty content."""
@@ -130,8 +124,9 @@ This feature is deprecated and MUST NOT be used in new code.
 
     def test_signal_descriptions_are_informative(self) -> None:
         """Signal descriptions should be human-readable."""
-        content = "Status: Final"
+        content = "This feature is deprecated and MUST NOT be used."
         signals = detect_signals(content, pep_number=815)
-        assert len(signals) == 1
-        assert len(signals[0].description) > 0
-        assert "final" in signals[0].description.lower()
+        assert len(signals) >= 1
+        # Check that at least one signal has an informative description
+        descriptions = [s.description for s in signals]
+        assert any(len(d) > 0 for d in descriptions)

@@ -26,14 +26,15 @@ def get_recent_commits(repo_path: str, since: str) -> list[CommitRecord]:
     """
     try:
         # Use git log with --name-status to get changed files
-        # Format: %H = commit hash, %aI = author date ISO format
+        # Format: %H = commit hash, %aI = author date ISO format, %s = subject
+        # Use ||| as delimiter to avoid conflicts with colons in timestamps
         result = subprocess.run(
             [
                 "git",
                 "log",
                 f"--since={since}",
                 "--name-status",
-                "--pretty=format:COMMIT:%H:%aI",
+                "--pretty=format:COMMIT|||%H|||%aI|||%s",
             ],
             cwd=repo_path,
             capture_output=True,
@@ -58,11 +59,11 @@ def _parse_git_log(git_output: str) -> list[CommitRecord]:
     """Parse git log output into CommitRecord objects.
 
     Expected format:
-        COMMIT:abc123:2024-01-15T10:30:00+00:00
+        COMMIT|||abc123|||2024-01-15T10:30:00+00:00|||Add initial draft of PEP 815
         A       pep-0001.rst
         M       pep-0002.rst
 
-        COMMIT:def456:2024-01-16T14:20:00+00:00
+        COMMIT|||def456|||2024-01-16T14:20:00+00:00|||Fix typo in PEP 1
         M       pep-0001.rst
 
     Args:
@@ -74,15 +75,21 @@ def _parse_git_log(git_output: str) -> list[CommitRecord]:
     commits: list[CommitRecord] = []
     current_hash: str | None = None
     current_timestamp: datetime | None = None
+    current_message: str | None = None
     current_files: list[ChangedFile] = []
 
     def save_commit() -> None:
         """Helper to save current commit if valid."""
-        if current_hash and current_timestamp is not None:
+        if (
+            current_hash
+            and current_timestamp is not None
+            and current_message is not None
+        ):
             commits.append(
                 CommitRecord(
                     hash=current_hash,
                     timestamp=current_timestamp,
+                    message=current_message,
                     files=current_files.copy(),
                 )
             )
@@ -93,14 +100,16 @@ def _parse_git_log(git_output: str) -> list[CommitRecord]:
             # Empty line - skip
             continue
 
-        if line.startswith("COMMIT:"):
+        if line.startswith("COMMIT|||"):
             # Save previous commit before starting new one
             save_commit()
 
-            # Parse new commit header
-            parts = line.split(":")
-            current_hash = parts[1]
-            timestamp_str = parts[2]
+            # Parse new commit header: COMMIT|||hash|||timestamp|||message
+            # Use ||| as delimiter to avoid conflicts with colons in timestamps
+            parts = line.split("|||", 3)
+            current_hash = parts[1] if len(parts) > 1 else ""
+            timestamp_str = parts[2] if len(parts) > 2 else ""
+            current_message = parts[3] if len(parts) > 3 else ""
             # Parse ISO format timestamp
             current_timestamp = datetime.fromisoformat(timestamp_str)
             current_files = []  # Reset files for new commit
