@@ -1,0 +1,12 @@
+[flake8]
+max-line-length = 88
+extend-ignore = E203,E501,W503,D100,D104
+max-complexity = 10
+docstring-convention = google
+import-order-style = google
+application-import-names = pepalyzer
+inline-quotes = double
+multiline-quotes = double
+per-file-ignores =
+    tests/*.py:D103,D102,D101
+    __init__.py:F401

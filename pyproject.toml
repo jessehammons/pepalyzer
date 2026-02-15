@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pepalyzer"
+version = "0.1.0"
+dependencies = [
+    "click",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pre-commit",
+    "pytest",
+    "pytest-cov",
+    "pytest-mock",
+    "black",
+    "mypy",
+    "flake8",
+    "flake8-bugbear",
+    "flake8-comprehensions",
+    "flake8-docstrings",
+    "flake8-import-order",
+    "flake8-quotes",
+    "pep8-naming",
+    "bandit[toml]",
+]
+
+[project.scripts]
+pepalyzer = "pepalyzer.cli:main"
+
+[tool.setuptools]
+packages = ["pepalyzer"]
+
+[tool.black]
+line-length = 88
+target-version = ['py39']
+
+[tool.mypy]
+junit_xml = "reports/mypy.xml"
+strict = true
+disallow_subclassing_any = false
+disallow_untyped_decorators = false
+ignore_missing_imports = true
+pretty = true
+show_column_numbers = true
+show_error_codes = true
+show_error_context = true
+warn_unreachable = true
+
+[tool.bandit]
+skips = ["B101"]  # Skip assert_used test
+exclude_dirs = ["tests", "test_*"]
