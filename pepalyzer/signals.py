@@ -33,7 +33,7 @@ def detect_signals(content: str, pep_number: int) -> list[PepSignal]:
     """
     signals: list[PepSignal] = []
 
-    # Detect status changes
+    # Detect status changes (signal_value=100: high-value editorial moments)
     status_patterns = [
         (r"status:\s*accepted", "status_accepted", "Status: Accepted"),
         (r"status:\s*final", "status_final", "Status: Final"),
@@ -47,10 +47,11 @@ def detect_signals(content: str, pep_number: int) -> list[PepSignal]:
                     pep_number=pep_number,
                     signal_type=signal_type,
                     description=description,
+                    signal_value=100,  # High-value: status transitions
                 )
             )
 
-    # Detect deprecation language
+    # Detect deprecation language (signal_value=50: medium-value content signal)
     deprecation_patterns = [
         r"\bdeprecated\b",
         r"\bremoved\b",
@@ -64,11 +65,12 @@ def detect_signals(content: str, pep_number: int) -> list[PepSignal]:
                     pep_number=pep_number,
                     signal_type="deprecation",
                     description="Contains deprecation or removal language",
+                    signal_value=50,  # Medium-value: content-based signal
                 )
             )
             break  # Only add one deprecation signal
 
-    # Detect normative language (RFC 2119)
+    # Detect normative language (RFC 2119) (signal_value=50: medium-value)
     normative_patterns = [
         r"\bMUST\b",
         r"\bMUST NOT\b",
@@ -86,6 +88,7 @@ def detect_signals(content: str, pep_number: int) -> list[PepSignal]:
                     pep_number=pep_number,
                     signal_type="normative_language",
                     description="Contains normative language (RFC 2119 keywords)",
+                    signal_value=50,  # Medium-value: content-based signal
                 )
             )
             break  # Only add one normative language signal

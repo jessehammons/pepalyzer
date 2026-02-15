@@ -16,6 +16,7 @@ Type: Standards Track
         assert len(signals) == 1
         assert signals[0].signal_type == "status_accepted"
         assert signals[0].pep_number == 815
+        assert signals[0].signal_value == 100  # High-value signal
 
     def test_detect_status_change_to_final(self) -> None:
         """Detect status change to Final."""
@@ -42,6 +43,9 @@ This feature is now deprecated and will be removed in Python 3.15.
         signals = detect_signals(content, pep_number=123)
         signal_types = {s.signal_type for s in signals}
         assert "deprecation" in signal_types
+        # Check signal_value for deprecation signal
+        deprecation_signal = next(s for s in signals if s.signal_type == "deprecation")
+        assert deprecation_signal.signal_value == 50  # Medium-value signal
 
     def test_detect_removal_language(self) -> None:
         """Detect removal keywords."""
@@ -59,6 +63,11 @@ The parser MUST NOT accept invalid syntax.
         signals = detect_signals(content, pep_number=815)
         signal_types = {s.signal_type for s in signals}
         assert "normative_language" in signal_types
+        # Check signal_value for normative language signal
+        normative_signal = next(
+            s for s in signals if s.signal_type == "normative_language"
+        )
+        assert normative_signal.signal_value == 50  # Medium-value signal
 
     def test_detect_normative_should(self) -> None:
         """Detect normative SHOULD language (RFC 2119)."""
