@@ -50,6 +50,50 @@ def _format_activity_signals(
     return lines
 
 
+def _format_single_activity_text(
+    activity: PepActivity, signals_by_pep: dict[int, list[PepSignal]]
+) -> list[str]:
+    """Format a single PEP activity into a list of output lines."""
+    lines = [_format_activity_header(activity)]
+
+    # Link
+    lines.append(f"  https://peps.python.org/pep-{activity.pep_number:04d}/")
+
+    # Abstract
+    if activity.abstract:
+        abstract_lines = activity.abstract.split("\n")
+        if len(abstract_lines) > 8:
+            display_lines = abstract_lines[:8]
+            display_lines.append("...")
+        else:
+            display_lines = abstract_lines
+
+        if display_lines:
+            lines.append(f"  Abstract: {display_lines[0]}")
+            for line in display_lines[1:]:
+                lines.append(f"            {line}")
+
+    # Files
+    if activity.files:
+        files_str = ", ".join(activity.files)
+        lines.append(f"  Files: {files_str}")
+
+    # Commit messages (chronological order)
+    if activity.commit_messages:
+        lines.append("  Commits:")
+        for message in activity.commit_messages:
+            lines.append(f"    - {message}")
+
+    # Signals (sorted by signal_value descending, then by type)
+    pep_signals = signals_by_pep.get(activity.pep_number, [])
+    lines.extend(_format_activity_signals(pep_signals))
+
+    # Blank line for separation
+    lines.append("")
+
+    return lines
+
+
 def format_as_text(activities: list[PepActivity], signals: list[PepSignal]) -> str:
     """Format results as human-readable text with metadata.
 
@@ -77,38 +121,11 @@ def format_as_text(activities: list[PepActivity], signals: list[PepSignal]) -> s
             signals_by_pep[signal.pep_number] = []
         signals_by_pep[signal.pep_number].append(signal)
 
-    lines: list[str] = []
-
+    all_lines: list[str] = []
     for activity in activities:
-        # Header: PEP number — Title (Status) [N commits]
-        lines.append(_format_activity_header(activity))
+        all_lines.extend(_format_single_activity_text(activity, signals_by_pep))
 
-        # Abstract (truncated to ~150 chars)
-        if activity.abstract:
-            abstract = activity.abstract
-            if len(abstract) > 150:
-                abstract = abstract[:150] + "..."
-            lines.append(f"  Abstract: {abstract}")
-
-        # Files
-        if activity.files:
-            files_str = ", ".join(activity.files)
-            lines.append(f"  Files: {files_str}")
-
-        # Commit messages (chronological order)
-        if activity.commit_messages:
-            lines.append("  Commits:")
-            for message in activity.commit_messages:
-                lines.append(f"    - {message}")
-
-        # Signals (sorted by signal_value descending, then by type)
-        pep_signals = signals_by_pep.get(activity.pep_number, [])
-        lines.extend(_format_activity_signals(pep_signals))
-
-        # Blank line between PEPs
-        lines.append("")
-
-    return "\n".join(lines)
+    return "\n".join(all_lines)
 
 
 def format_as_json(activities: list[PepActivity], signals: list[PepSignal]) -> str:
