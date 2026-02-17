@@ -180,8 +180,10 @@ def _collect_abstract_lines(lines: list[str]) -> list[str]:
         if re.match(r"^[=\-]+\s*$", line.strip()):
             continue
 
-        # Collect lines if in abstract section
-        if in_abstract_section:
+        # Collect lines if in abstract section or reading first paragraph
+        if in_abstract_section or (
+            not abstract_lines and not line.strip().startswith(".. ")
+        ):
             if _is_paragraph_end(line, abstract_lines):
                 break
             abstract_lines.append(line.strip())
@@ -192,7 +194,7 @@ def _collect_abstract_lines(lines: list[str]) -> list[str]:
 def _is_paragraph_end(line: str, collected_lines: list[str]) -> bool:
     """Check if this line marks the end of the abstract paragraph."""
     # Stop at blank line (end of paragraph)
-    if collected_lines and not line.strip():
+    if not line.strip():
         return True
 
     # Stop at next section header (but only if we have content)
