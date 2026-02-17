@@ -110,7 +110,9 @@ def _parse_git_log(git_output: str) -> list[CommitRecord]:
             current_hash = parts[1] if len(parts) > 1 else ""
             timestamp_str = parts[2] if len(parts) > 2 else ""
             current_message = parts[3] if len(parts) > 3 else ""
-            # Parse ISO format timestamp
+            # Parse ISO format timestamp, handling 'Z' for UTC in older Python
+            if timestamp_str.endswith("Z"):
+                timestamp_str = timestamp_str[:-1] + "+00:00"
             current_timestamp = datetime.fromisoformat(timestamp_str)
             current_files = []  # Reset files for new commit
 
