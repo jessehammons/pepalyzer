@@ -2,9 +2,11 @@
 
 from datetime import datetime
 from pathlib import Path
+import subprocess
 import tempfile
 
-from pepalyzer.aggregator import aggregate_by_pep
+from pepalyzer.aggregator import aggregate_by_pep, aggregate_by_pep_with_signals
+from pepalyzer.git_adapter import get_recent_commits
 from pepalyzer.models import ChangedFile, CommitRecord
 
 
@@ -413,3 +415,56 @@ This PEP addresses security vulnerabilities.
             assert len(activities) == 1
             # Should prefer .rst over .md
             assert activities[0].title == "RST Version"
+
+    def test_aggregate_detects_status_transition(self) -> None:
+        """Detect status transition signal when aggregating commits."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            # Setup git repo
+            subprocess.run(["git", "init"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.com"],
+                cwd=repo,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test User"], cwd=repo, check=True
+            )
+
+            # Create PEP with Draft status
+            pep_file = repo / "pep-0815.rst"
+            pep_content = (
+                "PEP: 815\nTitle: Test\nStatus: Draft\n\nAbstract\n========\n\nTest."
+            )
+            pep_file.write_text(pep_content)
+            subprocess.run(["git", "add", "pep-0815.rst"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "Initial draft"], cwd=repo, check=True
+            )
+
+            # Change status to Final
+            pep_content_final = pep_content.replace("Status: Draft", "Status: Final")
+            pep_file.write_text(pep_content_final)
+            subprocess.run(["git", "add", "pep-0815.rst"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "Mark as Final"], cwd=repo, check=True
+            )
+
+            # Get commits and aggregate
+            commits = get_recent_commits(str(repo), since="1 year ago")
+            activities, signals = aggregate_by_pep_with_signals(
+                commits, repo_path=str(repo)
+            )
+
+            # Should have one activity for PEP 815
+            assert len(activities) == 1
+            assert activities[0].pep_number == 815
+
+            # Should detect status transition signal
+            status_signals = [
+                s for s in signals if s.signal_type == "status_transition"
+            ]
+            assert len(status_signals) == 1
+            assert "Draft" in status_signals[0].description
+            assert "Final" in status_signals[0].description
+            assert status_signals[0].signal_value == 100

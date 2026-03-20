@@ -125,3 +125,33 @@ def _parse_git_log(git_output: str) -> list[CommitRecord]:
     save_commit()
 
     return commits
+
+
+def get_commit_diff(repo_path: str, commit_hash: str, file_path: str) -> str:
+    """Get unified diff for a specific file in a commit.
+
+    Args:
+        repo_path: Path to git repository
+        commit_hash: Commit hash to get diff for
+        file_path: Path to file relative to repo root
+
+    Returns:
+        Unified diff text for the file, empty string if file not in commit
+
+    Example:
+        >>> diff = get_commit_diff("/path/to/peps", "abc123", "pep-0815.rst")
+        >>> "-Status: Draft" in diff
+        True
+    """
+    result = subprocess.run(
+        ["git", "show", f"{commit_hash}", "--", file_path],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        return ""
+
+    return result.stdout

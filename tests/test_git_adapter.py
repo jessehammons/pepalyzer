@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 
-from pepalyzer.git_adapter import get_recent_commits
+from pepalyzer.git_adapter import get_commit_diff, get_recent_commits
 
 
 class TestGitAdapter:
@@ -175,3 +175,113 @@ class TestGitAdapter:
             assert isinstance(commits[0].timestamp, datetime)
             # Should be a recent timestamp (this year)
             assert commits[0].timestamp.year >= 2024
+
+    def test_get_commit_diff_single_file(self) -> None:
+        """Get diff for a specific file in a commit."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            # Setup: Initialize git repo
+            subprocess.run(["git", "init"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.com"],
+                cwd=repo,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test User"], cwd=repo, check=True
+            )
+
+            # Setup: Create PEP with Draft status
+            pep_file = repo / "pep-0815.rst"
+            pep_file.write_text("PEP: 815\nStatus: Draft\n")
+            subprocess.run(["git", "add", "pep-0815.rst"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "Initial draft"], cwd=repo, check=True
+            )
+
+            # Setup: Change status to Final
+            pep_file.write_text("PEP: 815\nStatus: Final\n")
+            subprocess.run(["git", "add", "pep-0815.rst"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "Mark as Final"], cwd=repo, check=True
+            )
+
+            # Get commit hash
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            commit_hash = result.stdout.strip()
+
+            # TEST: Get the diff
+            diff_text = get_commit_diff(str(repo), commit_hash, "pep-0815.rst")
+
+            # ASSERT: Verify diff contains status change
+            assert "-Status: Draft" in diff_text
+            assert "+Status: Final" in diff_text
+
+    def test_get_commit_diff_nonexistent_file(self) -> None:
+        """Handle diff for file that doesn't exist in commit."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            # Setup: Initialize git repo
+            subprocess.run(["git", "init"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.com"],
+                cwd=repo,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test User"], cwd=repo, check=True
+            )
+
+            # Create and commit one file
+            pep_file = repo / "pep-0815.rst"
+            pep_file.write_text("PEP: 815\n")
+            subprocess.run(["git", "add", "pep-0815.rst"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-m", "Add PEP"], cwd=repo, check=True)
+
+            # Get commit hash
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            commit_hash = result.stdout.strip()
+
+            # TEST: Request diff for a file that wasn't in this commit
+            diff_text = get_commit_diff(str(repo), commit_hash, "pep-9999.rst")
+
+            # ASSERT: Should return empty string
+            assert diff_text == ""
+
+    def test_get_commit_diff_invalid_commit(self) -> None:
+        """Handle diff for invalid commit hash."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            # Setup: Initialize git repo with one commit
+            subprocess.run(["git", "init"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.com"],
+                cwd=repo,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test User"], cwd=repo, check=True
+            )
+
+            pep_file = repo / "pep-0815.rst"
+            pep_file.write_text("PEP: 815\n")
+            subprocess.run(["git", "add", "pep-0815.rst"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-m", "Add PEP"], cwd=repo, check=True)
+
+            # TEST: Request diff for invalid commit hash
+            diff_text = get_commit_diff(str(repo), "0000000000", "pep-0815.rst")
+
+            # ASSERT: Should return empty string
+            assert diff_text == ""

@@ -33,16 +33,14 @@ def detect_signals(content: str, pep_number: int) -> list[PepSignal]:
     """
     signals: list[PepSignal] = []
 
-    # NOTE: Status transition detection is disabled for now because it was
-    # detecting status *presence* (current state) rather than actual *transitions*
-    # (changes). This was misleading - a PEP that was already Final would show
-    # "Status: Final ⭐" even if the commit just fixed typos.
+    # NOTE: Status transition detection is now IMPLEMENTED via diff-based detection.
+    # See detect_status_transition() below and aggregate_by_pep_with_signals() in
+    # aggregator.py. The old status presence detection was removed because it
+    # detected current state rather than transitions (the "PEP 512 problem" - showing
+    # "Status: Final ⭐" for PEPs already Final when commits just fixed typos).
     #
-    # To properly detect status transitions, we need to analyze git diffs to see
-    # if the Status field actually changed (e.g., "-Status: Draft" → "+Status: Final").
-    # This requires parsing commit diffs, not just reading current file content.
-    #
-    # See: https://github.com/anthropics/claude-code/issues/XXXX (if filed)
+    # The new implementation parses git diffs to find actual status changes:
+    # "-Status: Draft" → "+Status: Final" (signal_value=100: high-value lifecycle event)
 
     # Detect deprecation language (signal_value=50: medium-value content signal)
     deprecation_patterns = [
@@ -87,3 +85,50 @@ def detect_signals(content: str, pep_number: int) -> list[PepSignal]:
             break  # Only add one normative language signal
 
     return signals
+
+
+def detect_status_transition(diff_text: str, pep_number: int) -> list[PepSignal]:
+    r"""Detect status field changes in git diff.
+
+    Parses unified diff format to find lines like:
+        -Status: Draft
+        +Status: Final
+
+    Args:
+        diff_text: Unified diff text from git
+        pep_number: PEP number for the signal
+
+    Returns:
+        List containing one PepSignal if status changed, empty list otherwise
+
+    Examples:
+        >>> diff = "-Status: Draft\n+Status: Final"
+        >>> signals = detect_status_transition(diff, 815)
+        >>> signals[0].description
+        'Status: Draft → Final'
+    """
+    old_status = None
+    new_status = None
+
+    for line in diff_text.split("\n"):
+        # Look for removed status line
+        if line.startswith("-Status:"):
+            if old_status is None:  # Only capture first
+                old_status = line.split(":", 1)[1].strip()
+        # Look for added status line
+        elif line.startswith("+Status:"):
+            if new_status is None:  # Only capture first
+                new_status = line.split(":", 1)[1].strip()
+
+    # Only create signal if both exist and are different
+    if old_status and new_status and old_status != new_status:
+        return [
+            PepSignal(
+                pep_number=pep_number,
+                signal_type="status_transition",
+                description=f"Status: {old_status} → {new_status}",
+                signal_value=100,
+            )
+        ]
+
+    return []

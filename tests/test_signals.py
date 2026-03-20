@@ -1,6 +1,6 @@
 """Tests for signal detection logic."""
 
-from pepalyzer.signals import detect_signals
+from pepalyzer.signals import detect_signals, detect_status_transition
 
 
 class TestDetectSignals:
@@ -130,3 +130,54 @@ This feature is deprecated and MUST NOT be used in new code.
         # Check that at least one signal has an informative description
         descriptions = [s.description for s in signals]
         assert any(len(d) > 0 for d in descriptions)
+
+
+class TestDetectStatusTransition:
+    """Test status transition detection from git diffs."""
+
+    def test_detect_draft_to_final(self) -> None:
+        """Detect Draft → Final transition."""
+        diff_text = """
+diff --git a/peps/pep-0815.rst b/peps/pep-0815.rst
+-Status: Draft
++Status: Final
+"""
+        signals = detect_status_transition(diff_text, pep_number=815)
+
+        assert len(signals) == 1
+        assert signals[0].pep_number == 815
+        assert signals[0].signal_type == "status_transition"
+        assert signals[0].signal_value == 100
+        assert "Draft" in signals[0].description
+        assert "Final" in signals[0].description
+
+    def test_detect_draft_to_accepted(self) -> None:
+        """Detect Draft → Accepted transition."""
+        diff_text = "-Status: Draft\n+Status: Accepted\n"
+        signals = detect_status_transition(diff_text, pep_number=814)
+
+        assert len(signals) == 1
+        assert "Draft" in signals[0].description
+        assert "Accepted" in signals[0].description
+
+    def test_no_status_change(self) -> None:
+        """No signal when status doesn't change."""
+        diff_text = "-Title: Old Title\n+Title: New Title\nStatus: Draft\n"
+        signals = detect_status_transition(diff_text, pep_number=815)
+
+        assert len(signals) == 0
+
+    def test_status_added_not_changed(self) -> None:
+        """Don't detect signal when status is just added (new PEP)."""
+        diff_text = "+PEP: 818\n+Title: New PEP\n+Status: Draft\n"
+        signals = detect_status_transition(diff_text, pep_number=818)
+
+        assert len(signals) == 0  # No transition, just addition
+
+    def test_draft_to_withdrawn(self) -> None:
+        """Detect Draft → Withdrawn transition."""
+        diff_text = "-Status: Draft\n+Status: Withdrawn\n"
+        signals = detect_status_transition(diff_text, pep_number=534)
+
+        assert len(signals) == 1
+        assert "Withdrawn" in signals[0].description

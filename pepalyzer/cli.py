@@ -6,12 +6,9 @@ import sys
 import click
 
 from . import __version__
-from .aggregator import aggregate_by_pep
+from .aggregator import aggregate_by_pep_with_signals
 from .formatters import format_as_json, format_as_text
 from .git_adapter import get_recent_commits
-from .models import PepSignal
-from .pep_metadata import read_pep_file
-from .signals import detect_signals
 
 
 def normalize_since_format(since: str) -> str:
@@ -98,24 +95,12 @@ def scan(repo_path: str, since: str, output_format: str) -> None:
         click.echo("No commits found in the specified time period.", err=True)
         sys.exit(0)
 
-    # Aggregate by PEP with metadata extraction
-    activities = aggregate_by_pep(commits, repo_path=repo_path)
+    # Aggregate by PEP with metadata extraction and signal detection
+    activities, signals = aggregate_by_pep_with_signals(commits, repo_path=repo_path)
 
     if not activities:
         click.echo("No PEP changes found in the specified time period.", err=True)
         sys.exit(0)
-
-    # Detect signals from file content
-    signals: list[PepSignal] = []
-    for activity in activities:
-        # Try to read the first available file for this PEP
-        for file_path in activity.files:
-            content = read_pep_file(repo_path, file_path)
-            if content:
-                # Detect signals (signal_value already assigned in detect_signals)
-                pep_signals = detect_signals(content, activity.pep_number)
-                signals.extend(pep_signals)
-                break  # Only analyze first readable file per PEP
 
     # Format and output
     if output_format == "json":

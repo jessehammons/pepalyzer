@@ -305,112 +305,29 @@ Signal detection is intentionally:
 
 ### Known Limitations and Future Improvements
 
-#### Status Transition Detection (Not Yet Implemented)
+#### Status Transition Detection ✅ IMPLEMENTED
 
-**Current Status**: Status transition detection is **disabled** as of the current implementation.
+**Current Status**: Status transition detection is **fully implemented** via diff-based analysis.
 
-**Why Disabled**: The initial implementation detected status *presence* (current state) rather than actual *transitions* (changes). This was misleading:
-- Example: PEP 512 was already in "Final" status
-- A commit fixed Sphinx reference warnings (no status change)
-- Tool incorrectly showed "Status: Final ⭐" as if this were a major editorial moment
-- Result: False positives that misled users about editorial significance
+**Implementation**: The tool now correctly detects actual status transitions by analyzing git diffs:
+- Uses `get_commit_diff()` in `git_adapter.py` to fetch unified diffs for each commit
+- Uses `detect_status_transition()` in `signals.py` to parse diff lines for Status field changes
+- Integrated via `aggregate_by_pep_with_signals()` in `aggregator.py`
+- Properly distinguishes actual transitions (`-Status: Draft` → `+Status: Final`) from status presence
 
-**The Problem**: Reading current file content with `detect_signals(current_content)` only tells us the PEP's current status, not whether the status changed in the analyzed commits. A PEP that has been Final for years will show "Status: Final" even if recent commits just fixed typos.
+**What Was Fixed**: The initial implementation detected status *presence* (current state) rather than actual *transitions* (changes). This caused the "PEP 512 problem" where typo-fix commits showed "Status: Final ⭐" even though the PEP was already Final. The new diff-based approach only creates signals when the Status field actually changes in a commit.
 
-**Correct Implementation Approach**:
-
-To properly detect status transitions, we need to analyze **git diffs** for each commit:
-
-1. **Get the diff for each commit** that touched a PEP file:
-   ```bash
-   git show <commit-hash>:<file-path>
-   # or
-   git diff <parent-hash> <commit-hash> -- <file-path>
-   ```
-
-2. **Parse the unified diff format** to find Status field changes:
-   ```diff
-   -Status: Draft
-   +Status: Final
-   ```
-
-3. **Extract the transition**:
-   - Old status: "Draft"
-   - New status: "Final"
-   - Signal: "Status transition: Draft → Final" (signal_value=100)
-
-4. **Only create signals for actual changes**:
-   - If Status field unchanged: no signal
-   - If Status field changed: create high-value transition signal
-
-**Implementation Steps**:
-
-1. Add a new function `analyze_commit_diffs()` in `git_adapter.py`:
-   ```python
-   def get_commit_diff(repo_path: str, commit_hash: str, file_path: str) -> str:
-       """Get the unified diff for a specific file in a commit."""
-       result = subprocess.run(
-           ["git", "show", f"{commit_hash}:{file_path}"],
-           cwd=repo_path,
-           capture_output=True,
-           text=True,
-       )
-       return result.stdout
-   ```
-
-2. Add a new function `detect_status_transition()` in `signals.py`:
-   ```python
-   def detect_status_transition(diff_text: str, pep_number: int) -> list[PepSignal]:
-       """Detect status transitions by analyzing git diff.
-
-       Looks for patterns like:
-       -Status: Draft
-       +Status: Final
-       """
-       old_status = None
-       new_status = None
-
-       for line in diff_text.split('\n'):
-           if line.startswith('-Status:'):
-               old_status = line.split(':', 1)[1].strip()
-           elif line.startswith('+Status:'):
-               new_status = line.split(':', 1)[1].strip()
-
-       if old_status and new_status and old_status != new_status:
-           return [PepSignal(
-               pep_number=pep_number,
-               signal_type="status_transition",
-               description=f"Status transition: {old_status} → {new_status}",
-               signal_value=100,
-           )]
-
-       return []
-   ```
-
-3. Update `cli.py` to call diff-based detection:
-   ```python
-   # For each commit that touched each PEP
-   for activity in activities:
-       for commit in commits_for_pep[activity.pep_number]:
-           for file_path in activity.files:
-               diff = get_commit_diff(repo_path, commit.hash, file_path)
-               transition_signals = detect_status_transition(diff, activity.pep_number)
-               signals.extend(transition_signals)
-   ```
-
-**Benefits of Proper Implementation**:
+**Benefits**:
 - ✅ Only shows status transitions when they actually happen
 - ✅ No false positives for PEPs that were already Final
 - ✅ Accurate "Draft → Final ⭐" signals for major editorial moments
 - ✅ Shows which commit caused the transition (via commit message context)
 
-**Testing Requirements**:
-- Create test commits with actual status changes in diffs
-- Verify no signals when status unchanged
-- Verify correct signal when status changes
-- Handle edge cases: malformed Status fields, multiple Status lines, etc.
-
-**Priority**: Medium - Current implementation is correct (no false signals), just incomplete (misses real transitions).
+**Test Coverage**: Includes 9 new tests covering:
+- Git diff extraction (`test_get_commit_diff_*`)
+- Status transition parsing (`test_detect_draft_to_final`, etc.)
+- Integration with aggregation pipeline (`test_aggregate_detects_status_transition`)
+- Edge cases: invalid commits, nonexistent files, status additions vs. changes
 
 ## Output Expectations
 

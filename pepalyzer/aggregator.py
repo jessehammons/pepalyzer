@@ -1,10 +1,13 @@
 """Aggregate commit changes into PEP-centric activity summaries."""
 
 from collections import defaultdict
+from pathlib import Path
 
-from pepalyzer.models import CommitRecord, PepActivity
+from pepalyzer.git_adapter import get_commit_diff
+from pepalyzer.models import CommitRecord, PepActivity, PepSignal
 from pepalyzer.pep_metadata import extract_pep_metadata, PepMetadata, read_pep_file
 from pepalyzer.pep_parser import extract_pep_number
+from pepalyzer.signals import detect_signals, detect_status_transition
 
 
 def aggregate_by_pep(
@@ -126,3 +129,83 @@ def _extract_metadata_for_pep(repo_path: str, files: list[str]) -> PepMetadata |
 
     # No main PEP document found
     return None
+
+
+def aggregate_by_pep_with_signals(  # noqa: C901
+    commits: list[CommitRecord],
+    repo_path: str | None = None,
+) -> tuple[list[PepActivity], list[PepSignal]]:
+    """Aggregate commits by PEP and detect signals.
+
+    Combines PEP aggregation with both content-based and diff-based
+    signal detection.
+
+    Args:
+        commits: List of commit records to aggregate
+        repo_path: Path to git repository (required for signal detection)
+
+    Returns:
+        Tuple of (activities, signals)
+
+    Example:
+        >>> commits = get_recent_commits("/path/to/peps", since="30d")
+        >>> activities, signals = aggregate_by_pep_with_signals(commits, "/path/to/peps")
+    """
+    # Step 1: Standard aggregation
+    activities = aggregate_by_pep(commits, repo_path)
+
+    all_signals: list[PepSignal] = []
+
+    if not repo_path:
+        return activities, all_signals
+
+    # Step 2: Content-based signals (existing deprecation/normative detection)
+    # NOTE: For content-based signals, we only read one file per PEP since
+    # we're detecting patterns in the *current state* (not diffs). The PEP's
+    # main document contains all signals. Matches existing pattern in cli.py:118.
+    for activity in activities:
+        pep_files = sorted(activity.files)
+        for file_path in pep_files:
+            full_path = Path(repo_path) / file_path
+            try:
+                content = full_path.read_text(encoding="utf-8")
+                signals = detect_signals(content, activity.pep_number)
+                all_signals.extend(signals)
+                break  # Only process first readable file per PEP
+            except IOError:
+                continue
+
+    # Step 3: Diff-based signals (NEW - status transitions)
+    # Track which commits touched which PEPs
+    pep_commits: dict[int, list[CommitRecord]] = defaultdict(list)
+
+    for commit in commits:
+        for changed_file in commit.files:
+            pep_number = extract_pep_number(changed_file.path)
+            if pep_number is not None:
+                pep_commits[pep_number].append(commit)
+
+    # For each PEP, analyze diffs for status transitions
+    for pep_number, pep_commit_list in pep_commits.items():
+        seen_hashes = set()
+        for commit in pep_commit_list:
+            if commit.hash in seen_hashes:
+                continue
+            seen_hashes.add(commit.hash)
+
+            # Get files for this PEP in this commit
+            pep_files_in_commit = [
+                cf.path
+                for cf in commit.files
+                if extract_pep_number(cf.path) == pep_number
+            ]
+
+            # Check diff for each file (unlike content-based signals above,
+            # we process ALL files here because status could change in any file)
+            for file_path in pep_files_in_commit:
+                diff_text = get_commit_diff(repo_path, commit.hash, file_path)
+                if diff_text:
+                    transition_signals = detect_status_transition(diff_text, pep_number)
+                    all_signals.extend(transition_signals)
+
+    return activities, all_signals
